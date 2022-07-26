@@ -1,0 +1,20 @@
+// Taken from [trpc](https://github.com/trpc/trpc/blob/main/tsconfig.build.json)
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "lib": ["es5", "es6", "dom", "dom.iterable"],
+    "target": "ES3",
+    "importHelpers": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "moduleResolution": "node",
+    "jsx": "react",
+    "esModuleInterop": true
+  }
+}
