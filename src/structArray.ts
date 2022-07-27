@@ -1,4 +1,4 @@
-import { bool, JSValue, PropertyValues, u32, u64 } from "./numeric";
+import { JSValue, PropertyValues } from "./numeric";
 
 export type Schema = Record<string | number, PropertyValues>;
 
@@ -7,16 +7,27 @@ export type Struct<S extends Schema> = {
 };
 
 export type StructArray<S extends Schema> = {
-	readonly length: number;
+	length: number;
+	readonly structSize: number;
 	move(index: number): void;
+	next(): void;
+	get(index: number): Struct<S>;
 	set(index: number, value: Struct<S>): void;
 	swap(left: number, right: number): void;
 	insert(index: number, value: Struct<S>): void;
-	pop(): Struct<S>;
-	pop(n: number): Array<Struct<S>>;
+	pop(): void;
+	popValue(): Struct<S>;
 	push(struct: Struct<S>): void;
-	push(structs: Array<Struct<S>>): void;
+	grow(capacity: number): void;
 } & Struct<S>;
+
+export type SchemaOf<T> = T extends Struct<infer S>
+	? S
+	: T extends StructArray<infer S>
+	? S
+	: T extends StructArrayConstructor<infer S>
+	? S
+	: never;
 
 export type Properties<S extends Schema> = S[keyof S];
 
@@ -24,10 +35,6 @@ export interface StructArrayConstructor<S extends Schema> {
 	new (): StructArray<S>;
 	new (length: number): StructArray<S>;
 }
-
-type HasBuffer = {
-	$view: DataView;
-};
 
 type InternalStructArray<S extends Schema> = StructArray<S> & {
 	// Prototype properties
@@ -37,8 +44,6 @@ type InternalStructArray<S extends Schema> = StructArray<S> & {
 	// Instance properties
 	$$view: DataView;
 	$$offset: number;
-	length: number;
-	grow(): void;
 };
 
 function dataViewType(val: Exclude<PropertyValues, Boolean>) {
@@ -55,12 +60,14 @@ function dataViewType(val: Exclude<PropertyValues, Boolean>) {
 export function structArray<S extends Schema>(schema: S): StructArrayConstructor<S> {
 	let bytesUsed = 0;
 	const prototype = {} as any;
-	let setMethod = "const offset = index * this.structSize;";
+	let getProperties = "";
+	let setProperties = "";
 	for (const key of Object.keys(schema)) {
 		const val = schema[key];
 		// Use 1 byte for booleans (for now)
 		if (val.type === "boolean") {
-			setMethod += `this.$$view.setUint8(offset + ${bytesUsed}, value.${key});`;
+			setProperties += `this.$$view.setUint8(offset + ${bytesUsed}, value.${key});`;
+			getProperties += `${key}:!!this.$$view.getUint8(offset + ${bytesUsed}),`;
 			Object.defineProperty(prototype, key, {
 				enumerable: true,
 				get: new Function(`return !!this.$$view.getUint8(this.$$offset + ${bytesUsed});`) as any,
@@ -71,7 +78,8 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 			});
 			bytesUsed += 1;
 		} else if (val.type === "unsigned" || val.type === "signed" || val.type === "float") {
-			setMethod += `this.$$view.set${dataViewType(val)}(offset + ${bytesUsed}, value.${key});`;
+			setProperties += `this.$$view.set${dataViewType(val)}(offset + ${bytesUsed}, value.${key});`;
+			getProperties += `${key}:this.$$view.get${dataViewType(val)}(offset + ${bytesUsed}),`;
 			Object.defineProperty(prototype, key, {
 				enumerable: true,
 				get: new Function(
@@ -87,39 +95,84 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 			throw new Error("Unsupported data type");
 		}
 	}
-	prototype.structSize = bytesUsed;
+	// --- Internal stuff ---
+	// Properties
 	prototype.$$schema = schema;
-	prototype.move = function (this: InternalStructArray<S>, index: number) {
-		this.$$offset = index * this.structSize;
-	};
-	prototype.grow = function (this: InternalStructArray<S>) {
-		let capacity = Math.min(this.$$capacity * 2, Number.MAX_SAFE_INTEGER);
-		if(capacity === 0) {
-			capacity = 24;
+	// [grow]
+	prototype.grow = function (this: InternalStructArray<S>, capacity: number) {
+		if (this.length > capacity) {
+			throw new Error(`Cannot shrink capacity to ${capacity} when length is ${this.length}`);
 		}
-
 		const bytes = new Uint8Array(this.$$view.buffer);
 		const resizedBytes = new Uint8Array(capacity * this.structSize);
-		resizedBytes.set(bytes)
+		resizedBytes.set(bytes);
 		this.$$view = new DataView(resizedBytes.buffer);
 		// We could compute the capacity every time it is read with an accessor function,
 		// (capacity = this.$$view.buffer.byteLength / this.structSize)
 		// but we only change the capacity in one place and writing it explicitly makes it faster.
 		this.$$capacity = capacity;
 	};
-	prototype.set = new Function("index", "value", setMethod);
-	prototype.push = function (this: InternalStructArray<S>, value: Struct<S>) {
-		if (this.length === this.$$capacity) {
-			this.grow();
-		}
-		this.set(this.length, value);
-		this.length += 1;
+
+	// --- Public stuff ---
+
+	// Properties
+	prototype.structSize = bytesUsed;
+	// [move]
+	prototype.move = function (this: InternalStructArray<S>, index: number) {
+		this.$$offset = index * this.structSize;
+	};
+	// [next]
+	prototype.next = function (this: InternalStructArray<S>) {
+		this.$$offset += this.structSize;
+	};
+	// [get]
+	prototype.get = new Function("index", 
+		`const offset = index * this.structSize; return {${getProperties}};`
+	);
+	// [set]
+	prototype.set = new Function(
+		"index",
+		"value",
+		`const offset = index * this.structSize; ${setProperties}`
+	);
+	// [push]
+	prototype.push = new Function(
+		"value",
+		`if(this.length === this.$$capacity) {
+			this.grow(2 * this.length);
+		 }
+		 const offset = this.length * this.structSize;
+		 ${setProperties}
+		 this.length += 1;
+		`
+	);
+	// [swap]
+	// About 10-50x faster than creating buffer slices and swapping the raw bytes.
+	// Using slices gets more interesting as struct sizes grow, but unless you have gigantic structs,
+	// this is faster.
+	// Bonus: easier to understand.
+	prototype.swap = function (this: InternalStructArray<S>, left: number, right: number) {
+		const l = this.get(left);
+		const r = this.get(right);
+		this.set(right, l);
+		this.set(left, r);
+	};
+	// [pop]
+	prototype.pop = function (this: InternalStructArray<S>) {
+		this.length -= 1;
+	};
+	// [popValue]
+	prototype.popValue = function (this: InternalStructArray<S>): Struct<S> {
+		this.length -= 1;
+		// Technically the data is still there
+		return this.get(this.length);
 	};
 
+	// --- Constructor ---
 	// TODO: add initialization logic
 	const constructor = new Function(
 		"capacity",
-		"capacity = capacity || 0; this.$$offset = 0; this.length = 0; this.$$capacity = capacity;" +
+		"capacity = capacity || 12; this.$$offset = 0; this.length = 0; this.$$capacity = capacity;" +
 			`this.$$view = new DataView(new ArrayBuffer(capacity * ${bytesUsed}));`
 	);
 	constructor.prototype = prototype;

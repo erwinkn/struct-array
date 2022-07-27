@@ -3,11 +3,8 @@
   "compilerOptions": {
     "module": "esnext",
     "lib": ["es5", "es6", "dom", "dom.iterable"],
-    "target": "ES3",
+    "target": "ESNext",
     "importHelpers": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

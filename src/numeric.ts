@@ -19,6 +19,9 @@ export type U16 = {
 	type: "unsigned";
 	size: 2;
 };
+export type U31 = {
+	type: "smi";
+};
 export type U32 = {
 	type: "unsigned";
 	size: 4;
@@ -41,6 +44,9 @@ export type I8 = {
 export type I16 = {
 	type: "signed";
 	size: 2;
+};
+export type I31 = {
+	type: "smi";
 };
 export type I32 = {
 	type: "signed";
@@ -86,7 +92,7 @@ export type PropertyValues =
 export type JSValue<T extends PropertyValues> = T extends Bool
 	? boolean
 	: T extends U64 | I64
-	? bigint | number
+	? bigint
 	: number;
 
 export const bool: Bool = {
@@ -152,4 +158,11 @@ export const float32: Float32 = {
 export const float64: Float64 = {
 	type: "float",
 	size: 8,
+};
+
+export const u31: U31 = {
+	type: "smi",
+};
+export const i31: I31 = {
+	type: "smi",
 };
