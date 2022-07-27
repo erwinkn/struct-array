@@ -1,21 +1,31 @@
-import { bool, float32, float64, i16, i32, i64, i8, u16, u32, u64, u8 } from "./numeric";
-import { Properties, SchemaOf, Struct, StructArray, structArray } from "./structArray";
-import { run, bench, group, baseline } from "mitata";
+import { bool, float32, i16, I32, i32, u32 } from "./numeric";
+import { SchemaOf, Struct, StructArray, structArray, StructArrayConstructor } from "./structArray";
+import { run, bench, group } from "mitata";
 
 const N = 300_000;
-const StructArray = structArray({
-	a: i32,
-	b: i32,
-	c: i32,
-	d: i32,
-});
+let StructArray: StructArrayConstructor<{
+	a: I32;
+	b: I32;
+	c: I32;
+	d: I32;
+}>;
 
 type Schema = SchemaOf<typeof StructArray>;
+
+function compilation() {
+	StructArray = structArray({
+		a: i32,
+		b: i32,
+		c: i32,
+		d: i32,
+	});
+}
+
 let structs: StructArray<Schema>;
 let array: Array<Struct<Schema>>;
 
 function createStructArray() {
-	structs = new StructArray(N);
+	structs = new StructArray();
 	for (let i = 0; i < N; i++) {
 		structs.push({
 			a: i,
@@ -99,7 +109,7 @@ const SwapArray = structArray({
 const swapStructs = new SwapArray();
 const swapArray: Array<Struct<SchemaOf<typeof SwapArray>>> = [];
 for (let i = 0; i < M; i++) {
-	const s = { a: i, b: true, c: i - 1, d:3, e: 4 };
+	const s = { a: i, b: true, c: i - 1, d: 3, e: 4 };
 	swapStructs.push(s);
 	swapArray.push(s);
 }
@@ -113,12 +123,16 @@ function benchSwapArray() {
 	for (let i = 0; i < M - 1; i++) {
 		const o = swapArray[i];
 		swapArray[i] = swapArray[i + 1];
-		swapArray[i+1] = o;
+		swapArray[i + 1] = o;
 	}
 }
 
+bench("Compilation time", compilation);
+
 group("Array creation", () => {
-	bench("Array", createArray), bench("StructArray", createStructArray), bench("StructArray with set", createStructArrayWithSet);
+	bench("Array", createArray),
+		bench("StructArray", createStructArray),
+		bench("StructArray with set", createStructArrayWithSet);
 });
 
 group("Array read (full)", () => {
