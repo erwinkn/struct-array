@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "bench": "esbuild src/bench.ts --outfile=bench.mjs --bundle --minify --platform=node --format=esm && node bench.mjs && rm bench.mjs"
+  },
   "dependencies": {
     "esbuild": "^0.14.50",
     "eslint": "^8.20.0",
