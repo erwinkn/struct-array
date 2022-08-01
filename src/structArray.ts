@@ -28,6 +28,8 @@ export type SchemaOf<T> = T extends Struct<infer S>
 	? S
 	: never;
 
+export type ItemOf<T> = Struct<SchemaOf<T>>;
+
 export type Properties<S extends Schema> = S[keyof S];
 
 export interface StructArrayConstructor<S extends Schema> {
@@ -53,10 +55,10 @@ function dataViewType(val: Exclude<PropertyValues, Boolean>) {
 	return big + base + bits;
 }
 
+// TODO: Add bitflags and packing
 // TODO: Add option to disable packing
-// TODO: Extract as many text constants as possible to ensure easy changes
-// TODO: Optimize property access in `set` method by checking if we can use `.` access beforehand
-// -> Actually just add support for arbitrary string in property names
+// TODO: Add support for arbitrary string in property names
+//       -> will increase bundle size and decrease perf for those properties, so maybe just don't do it
 
 // Note: I apologize about the lack of spaces in the raw JS strings, this is for bundle size
 // Minified names for internal variables:
@@ -65,7 +67,9 @@ function dataViewType(val: Exclude<PropertyValues, Boolean>) {
 // - `$s` = schema
 // - `$v` = view = DataView
 // - `x` = argument to the function
-export function structArray<S extends Schema>(schema: S): StructArrayConstructor<S> {
+export function structArray<S extends Schema>(
+	schema: S
+): StructArrayConstructor<S> {
 	let bytesUsed = 0;
 	const prototype = {} as any;
 	let getProperties = "";
@@ -75,10 +79,12 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 		// Use 1 byte for booleans (for now)
 		if (val.type === "b") {
 			setProperties += `this.$v.setUint8(o+${bytesUsed},x.${key});`;
-			getProperties += `${key}:!!this.$v.getUint8(o+${bytesUsed}),`;
+			getProperties += `${key}:!!v.getUint8(o+${bytesUsed}),`;
 			Object.defineProperty(prototype, key, {
 				enumerable: true,
-				get: new Function(`return !!this.$v.getUint8(this.$o+${bytesUsed})`) as any,
+				get: new Function(
+					`return !!this.$v.getUint8(this.$o+${bytesUsed})`
+				) as any,
 				set: new Function(
 					"x",
 					`this.$v.setUint8(this.$o+${bytesUsed},x)`
@@ -86,8 +92,10 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 			});
 			bytesUsed += 1;
 		} else if (val.type === "u" || val.type === "i" || val.type === "f") {
-			setProperties += `this.$v.set${dataViewType(val)}(o+${bytesUsed}, x.${key});`;
-			getProperties += `${key}:this.$v.get${dataViewType(val)}(o+${bytesUsed}),`;
+			setProperties += `this.$v.set${dataViewType(
+				val
+			)}(o+${bytesUsed}, x.${key});`;
+			getProperties += `${key}:v.get${dataViewType(val)}(o+${bytesUsed}),`;
 			Object.defineProperty(prototype, key, {
 				enumerable: true,
 				get: new Function(
@@ -137,7 +145,7 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 	// [get]
 	prototype.get = new Function(
 		"i",
-		`var o=i*this.structSize;return {${getProperties}}`
+		`var o=i*this.structSize;var v=this.$v;return {${getProperties}}`
 	);
 	// [set]
 	prototype.set = new Function(
@@ -148,17 +156,20 @@ export function structArray<S extends Schema>(schema: S): StructArrayConstructor
 	// [push]
 	prototype.push = new Function(
 		"x",
-		`if(this.length === this.$c)this.grow(2*this.length);var o=this.length*this.structSize;${setProperties}this.length++`
+		`var l=this.length;if(l === this.$c)this.grow(2*l);var o=l*this.structSize;${setProperties}this.length++`
 	);
 	// [swap]
 	// About 10-50x faster than creating buffer slices and swapping the raw bytes.
 	// Using slices gets more interesting as struct sizes grow, but unless you have gigantic structs,
 	// this is faster.
 	// Bonus: easier to understand.
-	prototype.swap = function (this: InternalStructArray<S>, left: number, right: number) {
-		const l = this.get(left);
+	prototype.swap = function (
+		this: InternalStructArray<S>,
+		left: number,
+		right: number
+	) {
 		const r = this.get(right);
-		this.set(right, l);
+		this.set(right, this.get(left));
 		this.set(left, r);
 	};
 	// [pop]

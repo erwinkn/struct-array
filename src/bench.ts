@@ -1,11 +1,11 @@
-import { bool, float32, i16, I32, i32, u32 } from "./numeric";
+import { Bool, bool, float32, i16, I32, i32, u32 } from "./numeric";
 import { SchemaOf, Struct, StructArray, structArray, StructArrayConstructor } from "./structArray";
 import { run, bench, group } from "mitata";
 
 const N = 300_000;
 let StructArray: StructArrayConstructor<{
 	a: I32;
-	b: I32;
+	b: Bool;
 	c: I32;
 	d: I32;
 }>;
@@ -15,7 +15,7 @@ type Schema = SchemaOf<typeof StructArray>;
 function compilation() {
 	StructArray = structArray({
 		a: i32,
-		b: i32,
+		b: bool,
 		c: i32,
 		d: i32,
 	});
@@ -24,12 +24,24 @@ function compilation() {
 let structs: StructArray<Schema>;
 let array: Array<Struct<Schema>>;
 
-function createStructArray() {
+function createStructArrayWithPush() {
 	structs = new StructArray();
 	for (let i = 0; i < N; i++) {
 		structs.push({
 			a: i,
-			b: i + 1,
+			b: true,
+			c: i + 2,
+			d: i + 3,
+		});
+	}
+}
+
+function createArrayWithPush() {
+	array = [];
+	for (let i = 0; i < N; i++) {
+		array.push({
+			a: i,
+			b: true,
 			c: i + 2,
 			d: i + 3,
 		});
@@ -41,30 +53,40 @@ function createStructArrayWithSet() {
 	for (let i = 0; i < N; i++) {
 		structs.set(i, {
 			a: i,
-			b: i + 1,
+			b: true,
 			c: i + 2,
 			d: i + 3,
 		});
 	}
 }
 
-function createArray() {
-	array = [];
+function createArrayWithSet() {
+	array = new Array(N);
 	for (let i = 0; i < N; i++) {
-		array.push({
+		array[i] = {
 			a: i,
-			b: i + 1,
+			b: true,
 			c: i + 2,
 			d: i + 3,
-		});
+		};
 	}
 }
 
-function readStructArray() {
+function readStructProperties() {
+	let total = 0;
+	structs.move(0);
+	for (let i = 0; i < N; i++) {
+		total += - structs.a + structs.d - structs.c;
+		structs.next();
+	}
+	return total;
+}
+
+function readStructObject() {
 	let total = 0;
 	for (let i = 0; i < N; i++) {
 		const o = structs.get(i);
-		total += o.b - o.a + o.d - o.c;
+		total += - o.a + o.d - o.c;
 	}
 	return total;
 }
@@ -73,26 +95,35 @@ function readArray() {
 	let total = 0;
 	for (let i = 0; i < N; i++) {
 		const o = array[i];
-		total += o.b - o.a + o.d - o.c;
+		total += - o.a + o.d - o.c;
 	}
 	return total;
 }
 
-function readStructArray1() {
+function readStruct1Property() {
 	let total = 0;
 	structs.move(0);
 	for (let i = 0; i < N; i++) {
-		total += structs.a;
-		structs.move(i);
+		total += structs.c;
+		structs.next();
 	}
 	return total;
 }
 
-function readArray1() {
+function readStructObject1Property() {
+	let total = 0;
+	for (let i = 0; i < N; i++) {
+		const o = structs.get(i);
+		total += o.c;
+	}
+	return total;
+}
+
+function readArray1Property() {
 	let total = 0;
 	for (let i = 0; i < N; i++) {
 		const o = array[i];
-		total += o.a;
+		total += o.c;
 	}
 	return total;
 }
@@ -130,17 +161,22 @@ function benchSwapArray() {
 bench("Compilation time", compilation);
 
 group("Array creation", () => {
-	bench("Array", createArray),
-		bench("StructArray", createStructArray),
-		bench("StructArray with set", createStructArrayWithSet);
+	bench("Array w/ push", createArrayWithPush);
+	bench("Array w/ set", createArrayWithSet);
+	bench("StructArray w/ push", createStructArrayWithPush);
+	bench("StructArray w/ set", createStructArrayWithSet);
 });
 
-group("Array read (full)", () => {
-	bench("StructArray", readStructArray), bench("Array", readArray);
+group("Array read (all 4 properties)", () => {
+	bench("StructArray w/ get", readStructObject);
+	bench("StructArray w/ property accessors", readStructProperties);
+	bench("Array", readArray);
 });
 
-group("Array read (1 property)", () => {
-	bench("StructArray", readStructArray1), bench("Array", readArray1);
+group("Array read (1 property out of 4)", () => {
+	bench("StructArray w/ get", readStructObject1Property);
+	bench("StructArray w/ property accessors", readStruct1Property);
+	bench("Array", readArray1Property);
 });
 
 group(`Swap ${M} structs of size ${swapStructs.structSize}`, () => {
@@ -148,4 +184,9 @@ group(`Swap ${M} structs of size ${swapStructs.structSize}`, () => {
 	bench(`Array`, benchSwapArray);
 });
 
-await run();
+await run({
+	avg: true,
+	collect: true,
+	min_max: true,
+	percentiles: true,
+});

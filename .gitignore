@@ -1,5 +1,6 @@
 # Bun stuff
 bun.lockb
+node_modules.bun
 
 # Logs
 logs
