@@ -10,6 +10,18 @@ let StructArray: StructArrayConstructor<{
 	d: I32;
 }>;
 
+class Foo {
+	constructor(
+		public a: number,
+		public b: boolean,
+		public c: number,
+		public d: number
+	) {}
+}
+
+// Just a check, to verify that Foo has the expected shape
+const _: Struct<Schema> = new Foo(1, true, 1, 1);
+
 type Schema = SchemaOf<typeof StructArray>;
 
 function compilation() {
@@ -22,7 +34,7 @@ function compilation() {
 }
 
 let structs: StructArray<Schema>;
-let array: Array<Struct<Schema>>;
+let array: Array<Foo>;
 
 function createStructArrayWithPush() {
 	structs = new StructArray();
@@ -39,12 +51,8 @@ function createStructArrayWithPush() {
 function createArrayWithPush() {
 	array = [];
 	for (let i = 0; i < N; i++) {
-		array.push({
-			a: i,
-			b: true,
-			c: i + 2,
-			d: i + 3,
-		});
+		const foo = new Foo(i, true, i+2, i+3)
+		array.push(foo);
 	}
 }
 
@@ -63,12 +71,8 @@ function createStructArrayWithSet() {
 function createArrayWithSet() {
 	array = new Array(N);
 	for (let i = 0; i < N; i++) {
-		array[i] = {
-			a: i,
-			b: true,
-			c: i + 2,
-			d: i + 3,
-		};
+		const foo = new Foo(i, true, i+2, i+3)
+		array[i] = foo;
 	}
 }
 
